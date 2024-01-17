@@ -20,14 +20,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+# See: https://sqlite.org/jsonb.html
+
 from typing import Optional, Union, Tuple
 import struct
 import enum
 
-__version__ = "0.1"
+__version__ = "0.2"
 __description__ = "Module for reading the SQLite 'jsonb' binary JSON format."
 __contact__ = "Alex Caithness"
 
+
+# NB TextJ and Text5 values are not currently supported. There is code in this source that most likely works but at the
+# moment they raise a NotImplementedError as I haven't been able to generate test data to check. I currently believe
+# that those record types are only used internally and Text/TextRaw are used for serialization.
 
 class JsonbType(enum.IntEnum):
     Null = 0x0
@@ -38,8 +44,8 @@ class JsonbType(enum.IntEnum):
     Float = 0x5
     Float5 = 0x6
     Text = 0x7
-    TextJ = 0x8
-    Text5 = 0x9
+    TextJ = 0x8  # NB Not supported currently as I cannot generate test data - the code is probably fine though.
+    Text5 = 0x9  # NB Not supported currently as I cannot generate test data - the code is probably fine though.
     TextRaw = 0xA
     Array = 0xB
     Object = 0xC
@@ -92,8 +98,21 @@ def _read_jsonb(jsonb_data: bytes) -> Tuple[Optional[Union[bool, int, float, str
             result = int(jsonb_data[data_start_offset:data_start_offset + size].decode("ascii"))
     elif json_type in (JsonbType.Float, JsonbType.Float5):
         result = float(jsonb_data[data_start_offset:data_start_offset + size].decode("ascii"))
-    elif json_type in (JsonbType.Text, JsonbType.TextJ, JsonbType.Text5, JsonbType.TextRaw):
+    elif json_type in (JsonbType.Text, JsonbType.TextRaw):
         result = jsonb_data[data_start_offset:data_start_offset + size].decode("utf-8")
+    elif json_type == JsonbType.TextJ:
+        raise NotImplementedError("TextJ records not currently supported - see comments in code")
+        raw_string = jsonb_data[data_start_offset:data_start_offset + size].decode('utf-8')
+        result = json.loads(f"\"{raw_string}\"")
+    elif json_type == JsonbType.Text5:
+        raise NotImplementedError("Text5 records not currently supported - see comments in code")
+        # this is incomplete, there are escape rules that JSON5 allows that aren't accounted for here
+        # however I am unconvinced that these TextJ and Text5 actually get serialized at the moment as
+        # I've been unable to generate a test case where they are.
+        # This should raise a json.decoder.JSONDecodeError on encountering an un-handled escape sequence.
+        raw_string = jsonb_data[data_start_offset:data_start_offset + size].decode('utf-8')
+        raw_string = raw_string.replace("\\\n", "\\n")
+        result = json.loads(f"\"{raw_string}\"")
     elif json_type == JsonbType.Array:
         result = []
         inner_data = jsonb_data[data_start_offset:data_start_offset + size]
